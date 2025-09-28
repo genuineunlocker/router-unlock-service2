@@ -54,27 +54,21 @@ async function verifyPaypalPayment(req, res) {
       return res.status(404).json({ error: "Order not found" });
     }
 
-    console.log(`[Verify PayPal Payment] Order updated successfully: ${order.orderId}`);
+    console.log(`[Verify PayPal Payment] Order updated successfully:`, {
+      orderId: order.orderId,
+      paymentId: captureId,
+      paymentTime: order.paymentTime,
+      paymentStatus: order.paymentStatus,
+    });
 
     if (paymentStatus === "COMPLETED") {
       // Payment completed immediately - send invoice
       try {
-        const formattedPaymentTime = order.paymentTime.toLocaleString("en-US", {
-          month: "long",
-          day: "numeric",
-          year: "numeric",
-          hour: "numeric",
-          minute: "2-digit",
-          hour12: true,
-          timeZone: "Asia/Riyadh",
-        });
-
         console.log(`[Verify PayPal Payment] Generating invoice for completed payment: ${orderId}`);
 
         // Generate PDF invoice
         const invoicePdfPath = await generateInvoicePDF({
           ...order.toObject(),
-          paymentTime: formattedPaymentTime,
           paymentType: "PayPal",
         });
 
@@ -82,7 +76,7 @@ async function verifyPaypalPayment(req, res) {
         const attachments = [
           {
             filename: `Invoice_${order.orderId}.pdf`,
-            path: invoicePdfPath, // Use path instead of content for file-based PDF
+            path: invoicePdfPath,
           },
         ];
 
@@ -95,7 +89,6 @@ async function verifyPaypalPayment(req, res) {
             template: "invoice",
             data: {
               ...order.toObject(),
-              paymentTime: formattedPaymentTime,
               paymentType: "PayPal",
               deliveryTime: order.deliveryTime,
             },
@@ -112,7 +105,6 @@ async function verifyPaypalPayment(req, res) {
           template: "newOrder",
           data: {
             ...order.toObject(),
-            paymentTime: formattedPaymentTime,
             paymentType: "PayPal",
             deliveryTime: order.deliveryTime,
           },
@@ -128,14 +120,12 @@ async function verifyPaypalPayment(req, res) {
           amount: order.amount,
           deliveryTime: order.deliveryTime,
         });
-
       } catch (emailErr) {
         console.error(`[Verify PayPal Payment] Email send error for order ${orderId}:`, {
           error: emailErr.message,
-          stack: emailErr.stack
+          stack: emailErr.stack,
         });
-        
-        // Don't fail the entire request if email fails
+
         res.json({
           status: "success",
           message: "PayPal payment verified successfully, but email notification failed",
@@ -146,11 +136,10 @@ async function verifyPaypalPayment(req, res) {
           emailError: emailErr.message,
         });
       }
-
     } else if (paymentStatus === "PENDING") {
       // Payment is pending - send pending notification
       console.log(`[Verify PayPal Payment] Payment pending for order: ${orderId}`);
-      
+
       try {
         // Send pending payment email to customer
         if (order.email) {
@@ -164,7 +153,7 @@ async function verifyPaypalPayment(req, res) {
               paymentType: "PayPal",
               deliveryTime: order.deliveryTime,
             },
-            attachments: [], // No invoice for pending payments
+            attachments: [],
           });
         }
 
@@ -180,7 +169,7 @@ async function verifyPaypalPayment(req, res) {
             paymentTime: "Payment Pending",
             deliveryTime: order.deliveryTime,
           },
-          attachments: [], // No invoice for pending payments
+          attachments: [],
         });
 
         res.json({
@@ -189,10 +178,12 @@ async function verifyPaypalPayment(req, res) {
           orderId: order.orderId,
           expectedDelivery: order.deliveryTime,
         });
-
       } catch (emailErr) {
-        console.error(`[Verify PayPal Payment] Pending email error for order ${orderId}:`, emailErr);
-        
+        console.error(`[Verify PayPal Payment] Pending email error for order ${orderId}:`, {
+          error: emailErr.message,
+          stack: emailErr.stack,
+        });
+
         res.json({
           status: "pending",
           message: "PayPal payment is pending, but notification email failed",
@@ -200,25 +191,23 @@ async function verifyPaypalPayment(req, res) {
           emailError: emailErr.message,
         });
       }
-
     } else {
       // Payment failed or denied
       console.warn(`[Verify PayPal Payment] Payment not completed. Status: ${paymentStatus} for order: ${orderId}`);
-      
-      res.status(400).json({ 
+
+      res.status(400).json({
         error: "PayPal payment not completed",
         paymentStatus: paymentStatus,
-        orderId: orderId
+        orderId: orderId,
       });
     }
-
   } catch (error) {
     console.error("[Verify PayPal Payment] PayPal API Error:", {
       orderId: orderId,
       message: error.message,
       statusCode: error.statusCode,
       details: error.result?.details || error,
-      stack: error.stack
+      stack: error.stack,
     });
 
     // Update order status to failed
@@ -237,20 +226,20 @@ async function verifyPaypalPayment(req, res) {
 
     // Return appropriate error response
     if (error.statusCode === 422) {
-      res.status(400).json({ 
+      res.status(400).json({
         error: "Payment already captured or order already processed",
-        orderId: orderId
+        orderId: orderId,
       });
     } else if (error.statusCode === 404) {
-      res.status(404).json({ 
+      res.status(404).json({
         error: "PayPal order not found",
-        orderId: orderId
+        orderId: orderId,
       });
     } else {
-      res.status(500).json({ 
+      res.status(500).json({
         error: "Failed to verify PayPal payment",
         orderId: orderId,
-        details: process.env.NODE_ENV === 'development' ? error.message : undefined
+        details: process.env.NODE_ENV === "development" ? error.message : undefined,
       });
     }
   }
