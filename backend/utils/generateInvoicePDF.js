@@ -113,7 +113,7 @@ const generateInvoicePDF = async (order) => {
       { label: "IMEI", value: order.imei || "N/A" },
       { label: "Serial Number", value: order.serialNumber || "N/A" },
       { label: "Payment Method", value: order.paymentType || "Unknown" },
-      { label: "Payment Time", value: formatDateTime(order.paymentTime) },
+      { label: "Payment Date &Time", value: formatDateTime(order.paymentTime) },
     ];
 
     let y = tableTop;

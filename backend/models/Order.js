@@ -7,12 +7,8 @@ const orderSchema = new mongoose.Schema({
   network: { type: String, required: true },
   imei: { type: String, required: true },
   serialNumber: { type: String, required: true },
-
-  // Customer contact
   mobileNumber: { type: String },
   email: { type: String, required: true },
-
-  // Payment details
   amount: { type: Number, required: true },
   orderId: { type: String, required: true }, // PayPal orderId
   paymentId: { type: String },               // PayPal captureId
@@ -23,11 +19,8 @@ const orderSchema = new mongoose.Schema({
   },
   paymentTime: { type: Date },
   paymentType: { type: String, enum: ["PayPal"], default: "PayPal" },
-
-  // Service delivery info (digital service doesn’t need shipping/tracking)
-  deliveryTime: { type: String }, // e.g., "1-2 hours", "24 hours"
-
-  // Audit
+  deliveryTime: { type: String },
+  termsAccepted: { type: Boolean, required: true }, 
   createdAt: { type: Date, default: Date.now },
 });
 
