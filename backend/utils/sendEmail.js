@@ -1,18 +1,17 @@
-const nodemailer = require("nodemailer");
+const { Resend } = require("resend");
 const generateInvoicePDF = require("./generateInvoicePDF");
 const fs = require("fs");
 
-// Validate required environment variables
-const requiredEnvVars = ['EMAIL_HOST', 'EMAIL_PORT', 'EMAIL_USER', 'EMAIL_PASS'];
-const missingVars = requiredEnvVars.filter(varName => !process.env[varName]);
-
-if (missingVars.length > 0) {
-  console.error(`❌ Missing required environment variables: ${missingVars.join(', ')}`);
-  throw new Error(`Missing required environment variables: ${missingVars.join(', ')}`);
+// Validate required environment variable
+if (!process.env.RESEND_API_KEY) {
+  console.error("❌ Missing required environment variable: RESEND_API_KEY");
+  throw new Error("Missing required environment variable: RESEND_API_KEY");
 }
 
+const resend = new Resend(process.env.RESEND_API_KEY);
+
 const sendEmail = async ({ to, subject, template, data, attachments = [] }) => {
-  // Destructure data with fallback values to prevent "undefined" in templates
+  // Destructure data with fallback values
   const {
     country = 'N/A',
     brand = 'N/A',
@@ -36,20 +35,8 @@ const sendEmail = async ({ to, subject, template, data, attachments = [] }) => {
 
   console.log(`📧 Preparing to send email to ${to} with template: ${template}`);
 
-  const transporter = nodemailer.createTransport({
-    host: process.env.EMAIL_HOST,
-    port: parseInt(process.env.EMAIL_PORT),
-    secure: process.env.EMAIL_PORT === '465', // true for 465, false for other ports
-    auth: {
-      user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_PASS,
-    },
-    debug: process.env.NODE_ENV === 'development',
-    logger: process.env.NODE_ENV === 'development'
-  });
-
   let htmlContent = "";
-  let finalAttachments = [...attachments]; // Start with externally provided attachments
+  let finalAttachments = [];
 
   if (template === "invoice") {
     htmlContent = `
@@ -106,19 +93,27 @@ const sendEmail = async ({ to, subject, template, data, attachments = [] }) => {
       </html>
     `;
 
-    // Only generate PDF if no attachments provided externally
-    if (finalAttachments.length === 0) {
+    // Generate PDF if no attachments provided
+    if (attachments.length === 0) {
       try {
         console.log(`📄 Generating PDF invoice for order ${orderId}`);
         const filePath = await generateInvoicePDF(data);
+        
+        // Read file as base64 for Resend
+        const fileContent = fs.readFileSync(filePath);
+        const base64Content = fileContent.toString('base64');
+        
         finalAttachments.push({
           filename: `Invoice-${orderId}.pdf`,
-          path: filePath,
+          content: base64Content,
         });
+        
         console.log(`✅ PDF generated successfully: ${filePath}`);
+        
+        // Clean up file after reading
+        fs.unlinkSync(filePath);
       } catch (pdfError) {
         console.error(`❌ PDF generation failed for order ${orderId}:`, pdfError);
-        // Don't fail email sending if PDF fails
       }
     }
 
@@ -205,7 +200,7 @@ const sendEmail = async ({ to, subject, template, data, attachments = [] }) => {
           </div>
           
           <div class="pending-notice">
-            <h3>🔔 Your Payment is Being Processed</h3>
+            <h3>🔄 Your Payment is Being Processed</h3>
             <p>Thank you for your order! Your PayPal payment is currently being processed and should clear within a few minutes to a few hours.</p>
           </div>
           
@@ -236,35 +231,19 @@ const sendEmail = async ({ to, subject, template, data, attachments = [] }) => {
     throw new Error(`Invalid email template specified: ${template}`);
   }
 
-  const mailOptions = {
-    from: `"Genuine Unlocker" <${process.env.EMAIL_USER}>`,
-    to: to,
-    subject: subject,
-    html: htmlContent,
-    attachments: finalAttachments,
-  };
-
   try {
     console.log(`📤 Sending email to ${to}...`);
-    const result = await transporter.sendMail(mailOptions);
+    
+    const result = await resend.emails.send({
+      from: 'Genuine Unlocker <onboarding@resend.dev>', // Change to your verified domain
+      to: to,
+      subject: subject,
+      html: htmlContent,
+      attachments: finalAttachments.length > 0 ? finalAttachments : undefined,
+    });
     
     console.log(`✅ Email sent successfully to ${to} for order ${orderId}`, {
-      messageId: result.messageId,
-      accepted: result.accepted,
-      rejected: result.rejected
-    });
-
-    // Clean up generated PDF files after sending (only local files, not buffers)
-    finalAttachments.forEach(attachment => {
-      if (attachment.path && attachment.filename?.includes('Invoice-')) {
-        fs.unlink(attachment.path, (err) => {
-          if (err) {
-            console.warn(`⚠️ Failed to clean up PDF file: ${attachment.path}`);
-          } else {
-            console.log(`🗑️ Cleaned up PDF file: ${attachment.path}`);
-          }
-        });
-      }
+      id: result.id,
     });
 
     return result;
@@ -273,16 +252,6 @@ const sendEmail = async ({ to, subject, template, data, attachments = [] }) => {
     console.error(`❌ Failed to send email to ${to} for order ${orderId}:`, {
       error: error.message,
       stack: error.stack,
-      code: error.code,
-      responseCode: error.responseCode,
-      response: error.response
-    });
-    
-    // Clean up PDF files even on error
-    finalAttachments.forEach(attachment => {
-      if (attachment.path && attachment.filename?.includes('Invoice-')) {
-        fs.unlink(attachment.path, () => {});
-      }
     });
     
     throw new Error(`Failed to send email to ${to}: ${error.message}`);
