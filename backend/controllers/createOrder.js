@@ -431,6 +431,13 @@ const tacPricing = {
     "GO Telecom": 54,
     Other: 54,
 
+},
+90909090:{
+  STC: 2,
+    ZAIN: 2,
+    MOBILY: 2,
+    "GO Telecom": 2,
+    Other: 2,
 }
 };
 

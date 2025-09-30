@@ -1,6 +1,5 @@
 const Order = require("../models/Order");
 const sendEmail = require("../utils/sendEmail");
-const generateInvoicePDF = require("../utils/generateInvoicePDF");
 
 async function paypalWebhook(req, res) {
   try {
@@ -65,28 +64,12 @@ async function paypalWebhook(req, res) {
         paymentTime: order.paymentTime,
       });
 
-      // Process emails and invoice only for successful payments
+      // Process emails only for successful payments
       if (order.paymentStatus === "Success") {
         try {
-          console.log("[PayPal Webhook] Generating invoice for order:", orderId);
+          console.log("[PayPal Webhook] Sending emails for order:", orderId);
 
-          // Generate invoice PDF
-          const invoicePdfPath = await generateInvoicePDF({
-            ...order.toObject(),
-            paymentType: "PayPal",
-          });
-
-          console.log("[PayPal Webhook] Invoice generated successfully:", invoicePdfPath);
-
-          // Prepare attachments
-          const attachments = [
-            {
-              filename: `Invoice_${order.orderId}.pdf`,
-              path: invoicePdfPath,
-            },
-          ];
-
-          // Send email to customer
+          // Send email to customer (PDF will be auto-generated)
           if (order.email) {
             console.log("[PayPal Webhook] Sending customer email to:", order.email);
 
@@ -99,7 +82,7 @@ async function paypalWebhook(req, res) {
                 paymentType: "PayPal",
                 deliveryTime: order.deliveryTime,
               },
-              attachments,
+              attachments: [], // Empty - PDF will be generated inside sendEmail
             });
 
             console.log("[PayPal Webhook] Customer email sent successfully");
@@ -107,7 +90,7 @@ async function paypalWebhook(req, res) {
             console.warn("[PayPal Webhook] No customer email address found for order:", orderId);
           }
 
-          // Send email to admin
+          // Send email to admin (NO PDF)
           console.log("[PayPal Webhook] Sending admin notification email");
 
           await sendEmail({
@@ -119,11 +102,11 @@ async function paypalWebhook(req, res) {
               paymentType: "PayPal (Webhook)",
               deliveryTime: order.deliveryTime,
             },
-            attachments,
+            attachments: [], // No PDF for admin
           });
 
           console.log("[PayPal Webhook] Admin notification email sent successfully");
-          console.log("[PayPal Webhook] Webhook processed successfully: order updated & invoices sent");
+          console.log("[PayPal Webhook] Webhook processed successfully: order updated & emails sent");
         } catch (emailError) {
           console.error("[PayPal Webhook] Email processing error:", {
             orderId,
@@ -132,7 +115,7 @@ async function paypalWebhook(req, res) {
           });
         }
       } else {
-        console.log("[PayPal Webhook] Skipping invoice generation for non-Success order:", orderId);
+        console.log("[PayPal Webhook] Skipping email for non-Success order:", orderId);
       }
 
     } else if (event.event_type === "PAYMENT.CAPTURE.PENDING") {
