@@ -1,7 +1,6 @@
 const paypal = require("@paypal/checkout-server-sdk");
 const Order = require("../models/Order");
 const sendEmail = require("../utils/sendEmail");
-const generateInvoicePDF = require("../utils/generateInvoicePDF");
 
 // PayPal client configuration
 const environment = new paypal.core.LiveEnvironment(
@@ -64,23 +63,9 @@ async function verifyPaypalPayment(req, res) {
     if (paymentStatus === "COMPLETED") {
       // Payment completed immediately - send invoice
       try {
-        console.log(`[Verify PayPal Payment] Generating invoice for completed payment: ${orderId}`);
+        console.log(`[Verify PayPal Payment] Sending emails for completed payment: ${orderId}`);
 
-        // Generate PDF invoice
-        const invoicePdfPath = await generateInvoicePDF({
-          ...order.toObject(),
-          paymentType: "PayPal",
-        });
-
-        // Prepare attachments for email
-        const attachments = [
-          {
-            filename: `Invoice_${order.orderId}.pdf`,
-            path: invoicePdfPath,
-          },
-        ];
-
-        // Send invoice email to customer
+        // Send invoice email to customer (PDF will be auto-generated)
         if (order.email) {
           console.log(`[Verify PayPal Payment] Sending invoice email to customer: ${order.email}`);
           await sendEmail({
@@ -92,12 +77,12 @@ async function verifyPaypalPayment(req, res) {
               paymentType: "PayPal",
               deliveryTime: order.deliveryTime,
             },
-            attachments,
+            attachments: [], // Empty - PDF will be generated inside sendEmail
           });
           console.log(`[Verify PayPal Payment] Customer invoice email sent successfully`);
         }
 
-        // Send notification email to admin
+        // Send notification email to admin (NO PDF)
         console.log(`[Verify PayPal Payment] Sending admin notification email`);
         await sendEmail({
           to: "genuineunlockerinfo@gmail.com",
@@ -108,7 +93,7 @@ async function verifyPaypalPayment(req, res) {
             paymentType: "PayPal",
             deliveryTime: order.deliveryTime,
           },
-          attachments,
+          attachments: [], // No PDF for admin
         });
         console.log(`[Verify PayPal Payment] Admin notification email sent successfully`);
 

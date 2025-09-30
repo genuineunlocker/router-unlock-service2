@@ -1,14 +1,19 @@
-const { Resend } = require("resend");
+const SibApiV3Sdk = require('sib-api-v3-sdk');
 const generateInvoicePDF = require("./generateInvoicePDF");
 const fs = require("fs");
 
 // Validate required environment variable
-if (!process.env.RESEND_API_KEY) {
-  console.error("❌ Missing required environment variable: RESEND_API_KEY");
-  throw new Error("Missing required environment variable: RESEND_API_KEY");
+if (!process.env.BREVO_API_KEY) {
+  console.error("Missing required environment variable: BREVO_API_KEY");
+  throw new Error("Missing required environment variable: BREVO_API_KEY");
 }
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+// Configure Brevo API client
+const defaultClient = SibApiV3Sdk.ApiClient.instance;
+const apiKey = defaultClient.authentications['api-key'];
+apiKey.apiKey = process.env.BREVO_API_KEY;
+
+const apiInstance = new SibApiV3Sdk.TransactionalEmailsApi();
 
 const sendEmail = async ({ to, subject, template, data, attachments = [] }) => {
   // Destructure data with fallback values
@@ -33,7 +38,7 @@ const sendEmail = async ({ to, subject, template, data, attachments = [] }) => {
     throw new Error('Missing required parameters: to, subject, template, data');
   }
 
-  console.log(`📧 Preparing to send email to ${to} with template: ${template}`);
+  console.log(`Preparing to send email to ${to} with template: ${template}`);
 
   let htmlContent = "";
   let finalAttachments = [];
@@ -96,24 +101,46 @@ const sendEmail = async ({ to, subject, template, data, attachments = [] }) => {
     // Generate PDF if no attachments provided
     if (attachments.length === 0) {
       try {
-        console.log(`📄 Generating PDF invoice for order ${orderId}`);
+        console.log(`Starting PDF generation for order ${orderId}`);
         const filePath = await generateInvoicePDF(data);
+        console.log(`PDF file generated at: ${filePath}`);
         
-        // Read file as base64 for Resend
+        // Check if file exists
+        if (!fs.existsSync(filePath)) {
+          throw new Error(`PDF file not found at: ${filePath}`);
+        }
+        
+        // Check file size
+        const stats = fs.statSync(filePath);
+        console.log(`PDF file size: ${stats.size} bytes`);
+        
+        // Read file and convert to base64
         const fileContent = fs.readFileSync(filePath);
         const base64Content = fileContent.toString('base64');
+        console.log(`Base64 content length: ${base64Content.length} characters`);
         
+        // Brevo requires specific format for attachments
         finalAttachments.push({
-          filename: `Invoice-${orderId}.pdf`,
-          content: base64Content,
+          name: `Invoice-${orderId}.pdf`,
+          content: base64Content
         });
         
-        console.log(`✅ PDF generated successfully: ${filePath}`);
+        console.log(`PDF attachment prepared successfully`);
         
         // Clean up file after reading
-        fs.unlinkSync(filePath);
+        try {
+          fs.unlinkSync(filePath);
+          console.log(`Temporary PDF file deleted: ${filePath}`);
+        } catch (unlinkErr) {
+          console.warn(`Could not delete temp file: ${unlinkErr.message}`);
+        }
+        
       } catch (pdfError) {
-        console.error(`❌ PDF generation failed for order ${orderId}:`, pdfError);
+        console.error(`PDF generation failed for order ${orderId}:`, {
+          error: pdfError.message,
+          stack: pdfError.stack
+        });
+        // Continue without attachment rather than failing the entire email
       }
     }
 
@@ -136,15 +163,15 @@ const sendEmail = async ({ to, subject, template, data, attachments = [] }) => {
       <body>
         <div class="container">
           <div class="header">
-            <h2>🔔 New Router Unlock Order Received</h2>
+            <h2>New Router Unlock Order Received</h2>
           </div>
           
           <div class="urgent">
-            <p><strong>⚡ URGENT:</strong> A new order requires your attention!</p>
+            <p><strong>URGENT:</strong> A new order requires your attention!</p>
           </div>
           
           <div class="order-details">
-            <h3>📋 Order Information:</h3>
+            <h3>Order Information:</h3>
             <ul>
               <li><strong>Order ID:</strong> ${orderId}</li>
               <li><strong>Brand:</strong> ${brand}</li>
@@ -163,7 +190,7 @@ const sendEmail = async ({ to, subject, template, data, attachments = [] }) => {
           </div>
           
           <div class="urgent">
-            <p><strong>📞 Next Steps:</strong></p>
+            <p><strong>Next Steps:</strong></p>
             <ul>
               <li>Process the unlock request immediately</li>
               <li>Contact customer via WhatsApp: ${mobileNumber}</li>
@@ -196,11 +223,11 @@ const sendEmail = async ({ to, subject, template, data, attachments = [] }) => {
       <body>
         <div class="container">
           <div class="header">
-            <h2>⏳ Payment Pending - Order Confirmation</h2>
+            <h2>Payment Pending - Order Confirmation</h2>
           </div>
           
           <div class="pending-notice">
-            <h3>🔄 Your Payment is Being Processed</h3>
+            <h3>Your Payment is Being Processed</h3>
             <p>Thank you for your order! Your PayPal payment is currently being processed and should clear within a few minutes to a few hours.</p>
           </div>
           
@@ -214,9 +241,9 @@ const sendEmail = async ({ to, subject, template, data, attachments = [] }) => {
           
           <p><strong>What happens next?</strong></p>
           <ul>
-            <li>✅ We'll automatically send your invoice once payment clears</li>
-            <li>✅ Our team will begin processing your unlock request</li>
-            <li>✅ You'll receive the unlock code within ${deliveryTime}</li>
+            <li>We'll automatically send your invoice once payment clears</li>
+            <li>Our team will begin processing your unlock request</li>
+            <li>You'll receive the unlock code within ${deliveryTime}</li>
           </ul>
           
           <p>If you have any questions, please contact us at genuineunlockerinfo@gmail.com</p>
@@ -232,26 +259,40 @@ const sendEmail = async ({ to, subject, template, data, attachments = [] }) => {
   }
 
   try {
-    console.log(`📤 Sending email to ${to}...`);
+    console.log(`Sending email to ${to}...`);
     
-    const result = await resend.emails.send({
-      from: 'Genuine Unlocker <onboarding@resend.dev>', // Change to your verified domain
-      to: to,
-      subject: subject,
-      html: htmlContent,
-      attachments: finalAttachments.length > 0 ? finalAttachments : undefined,
-    });
+    // Prepare email data for Brevo
+    const sendSmtpEmail = new SibApiV3Sdk.SendSmtpEmail();
     
-    console.log(`✅ Email sent successfully to ${to} for order ${orderId}`, {
-      id: result.id,
+    sendSmtpEmail.sender = { 
+      name: "Genuine Unlocker", 
+      email: "genuineunlockerinfo@gmail.com"
+    };
+    sendSmtpEmail.to = [{ email: to }];
+    sendSmtpEmail.subject = subject;
+    sendSmtpEmail.htmlContent = htmlContent;
+    
+    // Only add attachment property if there are attachments
+    if (finalAttachments.length > 0) {
+      console.log(`Adding ${finalAttachments.length} attachment(s) to email`);
+      sendSmtpEmail.attachment = finalAttachments;
+    } else {
+      console.log('No attachments to add');
+    }
+
+    const result = await apiInstance.sendTransacEmail(sendSmtpEmail);
+    
+    console.log(`Email sent successfully to ${to} for order ${orderId}`, {
+      messageId: result.messageId,
     });
 
     return result;
 
   } catch (error) {
-    console.error(`❌ Failed to send email to ${to} for order ${orderId}:`, {
+    console.error(`Failed to send email to ${to} for order ${orderId}:`, {
       error: error.message,
-      stack: error.stack,
+      response: error.response?.text || error.response?.body,
+      stack: error.stack
     });
     
     throw new Error(`Failed to send email to ${to}: ${error.message}`);
